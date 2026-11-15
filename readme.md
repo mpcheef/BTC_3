@@ -1,18 +1,19 @@
 # Bot Tradingowy BTCUSDT (TradingView + Render + Bybit Futures)
 
-Zautomatyzowany system handlu algorytmicznego dla pary **BTCUSDT (USDT Perpetual)** na interwale **4h**, oparty o strategię podążającą za trendem (*Trend Following / Donchian Breakout*) z filtrami zmienności (ATR), siły trendu (ADX) oraz wolumenu.
+Zautomatyzowany system handlu algorytmicznego dla pary **BTCUSDT (USDT Perpetual)** na interwale **4h**, oparty o strategię podążającą za trendem (*Trend Following / Donchian Breakout*) z filtrami zmienności (ATR) oraz siły trendu (ADX).
 
 ---
 
 ## 1. Architektura systemu i wyniki testów (2022–2026)
 
+* **Nazwa strategii w TradingView:** `N3 BTCUSDT 4H Trend + ADX [Render API Webhook]`
 * **Rynek:** BTCUSDT Perpetual Futures (Bybit)
 * **Interwał:** 4h (czterogodzinowy)
-* **Zarządzanie ryzykiem:** Dynamiczny *Position Sizing* — ryzyko **2,5%–2,8%** aktualnego salda konta na jedną transakcję (wyliczane automatycznie ze `stop_distance`).
+* **Zarządzanie ryzykiem:** Dynamiczny *Position Sizing* — ryzyko **2,5%** aktualnego salda konta na jedną transakcję (wyliczane automatycznie przez serwer na podstawie `stop_distance`).
 * **Ustawienia konta Bybit:** Tryb depozytu **Cross**, dźwignia maksymalna **5x** (ustawiana automatycznie przez API bota), tryb pozycji **One-Way Mode**, opcja *TP/SL Price Protection* **wyłączona (OFF)**.
 * **Wyniki historyczne (styczeń 2022 – listopad 2026):**
-  * Zysk netto z procentem składanym: **~260%** (**~30,1% CAGR rocznie** / **~53,4% średniorocznie bez procentu składanego**)
-  * Maksymalne obsunięcie kapitału (*Max Drawdown*): **~25%**
+  * Zysk netto z procentem składanym: **~228%** (**~27,6% CAGR rocznie** / **~46,8% średniorocznie bez procentu składanego**)
+  * Maksymalne obsunięcie kapitału (*Max Drawdown*): **~22%**
   * Współczynnik zysku (*Profit Factor*): **~1,62**
 
 ---
@@ -32,7 +33,7 @@ Zautomatyzowany system handlu algorytmicznego dla pary **BTCUSDT (USDT Perpetual
 | :--- | :--- |
 | `BYBIT_API_KEY` | Klucz API z konta Bybit (uprawnienia: *Contract - Orders & Positions*, *Unified Trading*) |
 | `BYBIT_API_SECRET` | Sekretny klucz API z konta Bybit |
-| `WEBHOOK_SECRET` | Tajne hasło autoryzacji (musi być identyczne jak w polu `webhookSecret` w TradingView) |
+| `WEBHOOK_SECRET` | Tajne hasło autoryzacji (musi być identyczne jak w polu `webhookSecret` w TradingView, obecnie: `LIS`) |
 | `BYBIT_TESTNET` | `true` dla środowiska testowego (`://bybit.com`) lub `false` dla prawdziwego konta (`bybit.com`) |
 
 ---
@@ -47,7 +48,7 @@ Darmowy plan Render usypia serwer po 15 minutach bezczynności (wybudzenie trwa 
 ## 4. Konfiguracja alertu w TradingView
 
 1. Wykres: **BTCUSDT.P (Bybit)**, interwał **4h**.
-2. Warunek (*Condition*): Nazwa strategii (`BTCUSDT 4H Trend + ADX + Vol [Final Render]`).
+2. Warunek (*Condition*): Nazwa strategii (`N3 BTCUSDT 4H Trend + ADX [Render API Webhook]`).
 3. Wygaśnięcie (*Expiration*): **Otwarty (*Open-ended*)**.
 4. Wiadomość (*Message*):
    ```text
@@ -70,23 +71,23 @@ Darmowy plan Render usypia serwer po 15 minutach bezczynności (wybudzenie trwa 
 
 ---
 
-## 6. Finalny kod Pine Script v5 (TradingView)
+## 6. Aktualny kod Pine Script v5 (TradingView)
 
 ```pinescript
 //@version=5
-strategy("BTCUSDT 4H Trend + ADX + Vol [Final Render]", overlay=true, 
+strategy("N3 BTCUSDT 4H Trend + ADX [Render API Webhook]", overlay=true, 
      initial_capital=100, 
      currency=currency.USDT,
      default_qty_type=strategy.cash,
-     margin_long=20,
-     margin_short=20,
+     margin_long=20, // Odpowiednik dźwigni 5x w testerze TradingView
+     margin_short=20, // Odpowiednik dźwigni 5x w testerze TradingView
      commission_type=strategy.commission.percent, 
      commission_value=0.055,
      slippage=2)
 
 // === 1. ZARZĄDZANIE RYZYKIEM I AUTORYZACJA ===
 riskPerTrade = input.float(2.5, "Ryzyko na transakcję (% salda na Bybit)", minval=0.5, maxval=5.0, step=0.1)
-webhookSecret = input.string("TUTAJ_WPISZ_SWOJE_HASLO", "Hasło autoryzacji dla serwera Render")
+webhookSecret = input.string("LIS", "Hasło autoryzacji dla serwera Render")
 
 // === 2. PARAMETRY STRATEGII ===
 donchianLen = input.int(24, "Okres wybicia (świece 4H)", minval=10)
@@ -94,29 +95,24 @@ emaFilterLen = input.int(200, "Filtr głównego trendu (EMA)", minval=50)
 atrLen = input.int(14, "Okres zmienności ATR", minval=5)
 atrMult = input.float(3.0, "Mnożnik ATR dla Stop Lossa", minval=1.0, step=0.1)
 
-// === 3. FILTRY JAKOŚCI SYGNAŁU (ADX + WOLUMEN) ===
+// === 3. FILTR SIŁY TRENDU (ADX) ===
 useAdx = input.bool(true, "Włącz filtr ADX (unikaj konsolidacji)")
 adxLen = input.int(14, "Okres ADX", minval=5)
-adxThreshold = input.int(20, "Minimalny poziom ADX", minval=10, maxval=40)
+adxThreshold = input.int(20, "Minimalny poziom ADX dla wejścia", minval=10, maxval=40)
 
-useVolFilter = input.bool(true, "Włącz filtr wolumenu (tylko silne wybicia)")
-volLen = input.int(20, "Okres średniego wolumenu", minval=5)
-volMult = input.float(1.1, "Mnożnik wolumenu", minval=0.5, maxval=3.0, step=0.1)
-
-// === 4. OBLICZENIA WSKAŹNIKÓW ===
-upperBand = ta.highest(high[1], donchianLen)
-lowerBand = ta.lowest(low[1], donchianLen)
+// === 4. OBLICZENIA WSKAŹNIKÓW (Poprzednia świeca) ===
+prevHigh = high[1]
+prevLow = low[1]
+upperBand = ta.highest(prevHigh, donchianLen)
+lowerBand = ta.lowest(prevLow, donchianLen)
 emaTrend = ta.ema(close, emaFilterLen)
 atr = ta.atr(atrLen)
 [diPlus, diMinus, adx] = ta.dmi(adxLen, adxLen)
-avgVol = ta.sma(volume, volLen)
 
 // === 5. WARUNKI WEJŚCIA ===
 adxCondition = useAdx ? (adx > adxThreshold) : true
-volCondition = useVolFilter ? (volume > avgVol * volMult) : true
-
-longCondition = ta.crossover(close, upperBand) and close > emaTrend and adxCondition and volCondition
-shortCondition = ta.crossunder(close, lowerBand) and close < emaTrend and adxCondition and volCondition
+longCondition = ta.crossover(close, upperBand) and close > emaTrend and adxCondition
+shortCondition = ta.crossunder(close, lowerBand) and close < emaTrend and adxCondition
 
 // === 6. OBLICZENIA DO BACKTESTU I DLA SERWERA RENDER ===
 stopDistance = atr * atrMult
@@ -124,6 +120,7 @@ riskAmount = strategy.equity * (riskPerTrade / 100)
 rawQty = riskAmount / stopDistance
 positionSize = math.max(0.001, math.round(rawQty * 1000) / 1000)
 
+// Wyliczenie poziomów SL dla informacji wysyłanej do bota na Render
 longSlPrice = close - stopDistance
 shortSlPrice = close + stopDistance
 
