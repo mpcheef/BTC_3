@@ -56,7 +56,7 @@ def get_open_position_qty(symbol: str) -> float:
         return 0.0
     return float(positions[0].get("size", 0.0))
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "mode": "TESTNET" if USE_TESTNET else "REAL"}
 
